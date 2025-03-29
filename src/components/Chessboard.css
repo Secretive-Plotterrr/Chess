@@ -137,6 +137,16 @@
   transition: background-color 0.2s ease;
 }
 
+.check {
+  background-color: #ff4444 !important; /* Red highlight for king in check */
+}
+
+.check-warning {
+  color: #ff4444;
+  font-weight: bold;
+  margin-top: 5px;
+}
+
 .promotion-choices button:hover {
   background-color: #3182ce;
 }
