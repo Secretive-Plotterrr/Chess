@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './Chessboard.css';
 
 const initialBoard = [
@@ -33,6 +33,9 @@ const Chessboard = () => {
   const [promotion, setPromotion] = useState(null);
   const [lastMove, setLastMove] = useState(null);
   const [checkStatus, setCheckStatus] = useState({ white: false, black: false });
+  const [moveHistory, setMoveHistory] = useState([]); // For undo/redo
+  const [futureMoves, setFutureMoves] = useState([]); // For redo
+  const [timer, setTimer] = useState(null); // Timer in seconds
 
   const isWhitePiece = (piece) => piece && piece === piece.toUpperCase();
 
@@ -82,7 +85,6 @@ const Chessboard = () => {
     const king = isWhite ? 'K' : 'k';
     let kingRow, kingCol;
     
-    // Find king's position
     for (let i = 0; i < 8; i++) {
       for (let j = 0; j < 8; j++) {
         if (tempBoard[i][j] === king) {
@@ -94,7 +96,6 @@ const Chessboard = () => {
       if (kingRow !== undefined) break;
     }
 
-    // Check if any opponent piece can attack the king
     for (let i = 0; i < 8; i++) {
       for (let j = 0; j < 8; j++) {
         const piece = tempBoard[i][j];
@@ -118,12 +119,10 @@ const Chessboard = () => {
     const rowDiff = Math.abs(toRow - fromRow);
     const colDiff = Math.abs(toCol - fromCol);
 
-    // Simulate the move
     const tempBoard = board.map(row => [...row]);
     tempBoard[toRow][toCol] = piece;
     tempBoard[fromRow][fromCol] = '';
 
-    // Check if move puts own king in check
     if (isKingInCheck(isWhite, tempBoard)) return false;
 
     switch (piece.toLowerCase()) {
@@ -143,32 +142,23 @@ const Chessboard = () => {
               Math.abs(lastMove.fromRow - lastMove.toRow) === 2 && 
               lastMove.toCol === toCol && 
               lastMove.toRow === fromRow) {
-            tempBoard[fromRow][toCol] = ''; // Remove en passant pawn
+            tempBoard[fromRow][toCol] = '';
             return !isKingInCheck(isWhite, tempBoard);
           }
         }
         return false;
 
       case 'r':
-        if (rowDiff === 0 || colDiff === 0) {
-          return isPathClear(fromRow, fromCol, toRow, toCol);
-        }
-        return false;
+        return (rowDiff === 0 || colDiff === 0) && isPathClear(fromRow, fromCol, toRow, toCol);
 
       case 'n':
         return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
 
       case 'b':
-        if (rowDiff === colDiff) {
-          return isPathClear(fromRow, fromCol, toRow, toCol);
-        }
-        return false;
+        return rowDiff === colDiff && isPathClear(fromRow, fromCol, toRow, toCol);
 
       case 'q':
-        if (rowDiff === 0 || colDiff === 0 || rowDiff === colDiff) {
-          return isPathClear(fromRow, fromCol, toRow, toCol);
-        }
-        return false;
+        return (rowDiff === 0 || colDiff === 0 || rowDiff === colDiff) && isPathClear(fromRow, fromCol, toRow, toCol);
 
       case 'k':
         if (rowDiff === 0 && colDiff === 2) {
@@ -205,13 +195,48 @@ const Chessboard = () => {
   };
 
   const updateCheckStatus = (newBoard) => {
-    setCheckStatus({
-      white: isKingInCheck(true, newBoard),
-      black: isKingInCheck(false, newBoard)
-    });
+    const whiteCheck = isKingInCheck(true, newBoard);
+    const blackCheck = isKingInCheck(false, newBoard);
+    setCheckStatus({ white: whiteCheck, black: blackCheck });
+
+    // Start timer if a king is in check
+    if ((whiteCheck || blackCheck) && !winner && !timer) {
+      setTimer(15);
+    } else if (!whiteCheck && !blackCheck) {
+      setTimer(null);
+    }
+  };
+
+  useEffect(() => {
+    let interval;
+    if (timer !== null && timer > 0) {
+      interval = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    } else if (timer === 0) {
+      // Timer ran out, declare winner based on who checked the opponent
+      if (checkStatus.white && !checkStatus.black) {
+        setWinner('Black');
+      } else if (checkStatus.black && !checkStatus.white) {
+        setWinner('White');
+      }
+      setTimer(null);
+    }
+    return () => clearInterval(interval);
+  }, [timer, checkStatus]);
+
+  const saveState = () => {
+    return {
+      board: board.map(row => [...row]),
+      turn,
+      castling: { ...castling },
+      lastMove: lastMove ? { ...lastMove } : null,
+      checkStatus: { ...checkStatus }
+    };
   };
 
   const handlePromotionChoice = (piece) => {
+    const previousState = saveState();
     const newBoard = [...board.map(row => [...row])];
     const { row, col } = promotion;
     newBoard[row][col] = turn === 'white' ? piece.toUpperCase() : piece.toLowerCase();
@@ -219,6 +244,8 @@ const Chessboard = () => {
     setPromotion(null);
     setTurn(turn === 'white' ? 'black' : 'white');
     setLastMove(null);
+    setMoveHistory([...moveHistory, previousState]);
+    setFutureMoves([]);
     updateCheckStatus(newBoard);
     const gameWinner = checkForWinner(newBoard);
     if (gameWinner) setWinner(gameWinner);
@@ -230,10 +257,9 @@ const Chessboard = () => {
     if (selectedPiece) {
       const { row: fromRow, col: fromCol } = selectedPiece;
       if (isValidMove(fromRow, fromCol, row, col)) {
+        const previousState = saveState();
         const newBoard = [...board.map(row => [...row])];
         const piece = newBoard[fromRow][fromCol];
-        // eslint-disable-next-line no-unused-vars
-        const isWhite = isWhitePiece(piece);
 
         if (piece.toLowerCase() === 'k' && Math.abs(fromCol - col) === 2) {
           if (col === 6) {
@@ -261,6 +287,8 @@ const Chessboard = () => {
           setPromotion({ row, col });
           setLastMove({ piece, fromRow, fromCol, toRow: row, toCol: col });
           setSelectedPiece(null);
+          setMoveHistory([...moveHistory, previousState]);
+          setFutureMoves([]);
           updateCheckStatus(newBoard);
           return;
         }
@@ -279,6 +307,8 @@ const Chessboard = () => {
         if (piece === 'r' && fromRow === 0 && fromCol === 0) setCastling({...castling, blackRookA: true});
         if (piece === 'r' && fromRow === 0 && fromCol === 7) setCastling({...castling, blackRookH: true});
 
+        setMoveHistory([...moveHistory, previousState]);
+        setFutureMoves([]);
         updateCheckStatus(newBoard);
         const gameWinner = checkForWinner(newBoard);
         if (gameWinner) setWinner(gameWinner);
@@ -287,6 +317,35 @@ const Chessboard = () => {
     } else if (board[row][col]) {
       setSelectedPiece({ row, col });
     }
+  };
+
+  const handleUndo = () => {
+    if (moveHistory.length === 0 || winner) return;
+    const previousState = moveHistory[moveHistory.length - 1];
+    const newFutureMoves = [saveState(), ...futureMoves];
+    setBoard(previousState.board);
+    setTurn(previousState.turn);
+    setCastling(previousState.castling);
+    setLastMove(previousState.lastMove);
+    setCheckStatus(previousState.checkStatus);
+    setMoveHistory(moveHistory.slice(0, -1));
+    setFutureMoves(newFutureMoves);
+    setTimer(null); // Reset timer on undo
+    setWinner(null); // Reset winner on undo
+  };
+
+  const handleRedo = () => {
+    if (futureMoves.length === 0 || winner) return;
+    const nextState = futureMoves[0];
+    const newMoveHistory = [...moveHistory, saveState()];
+    setBoard(nextState.board);
+    setTurn(nextState.turn);
+    setCastling(nextState.castling);
+    setLastMove(nextState.lastMove);
+    setCheckStatus(nextState.checkStatus);
+    setMoveHistory(newMoveHistory);
+    setFutureMoves(futureMoves.slice(1));
+    updateCheckStatus(nextState.board); // Recheck status after redo
   };
 
   const resetGame = () => {
@@ -305,6 +364,9 @@ const Chessboard = () => {
     setPromotion(null);
     setLastMove(null);
     setCheckStatus({ white: false, black: false });
+    setMoveHistory([]);
+    setFutureMoves([]);
+    setTimer(null);
   };
 
   return (
@@ -354,8 +416,15 @@ const Chessboard = () => {
         ) : (
           <div className="turn-indicator">
             <div>Turn: {turn.charAt(0).toUpperCase() + turn.slice(1)}</div>
-            {checkStatus.white && <div className="check-warning">White King is in Check!</div>}
-            {checkStatus.black && <div className="check-warning">Black King is in Check!</div>}
+            {checkStatus.white && <div className="checks-warning">White King is in Check!</div>}
+            {checkStatus.black && <div className="checks-warning">Black King is in Check!</div>}
+            {(checkStatus.white || checkStatus.black) && timer !== null && (
+              <div className="timer">Time to Move: {timer}s</div>
+            )}
+            <div className="controls">
+              <button onClick={handleUndo} disabled={moveHistory.length === 0}>Undo</button>
+              <button onClick={handleRedo} disabled={futureMoves.length === 0}>Redo</button>
+            </div>
           </div>
         )}
       </div>
