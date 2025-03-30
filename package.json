@@ -1,7 +1,7 @@
 {
   "name": "chess",
   "version": "0.1.0",
-  "homepage": "https://secretive-plotterrr.github.io/Chess-App/",
+  "homepage": "https://secretive-plotterrr.github.io/Chess/",
   "private": true,
   "dependencies": {
     "@testing-library/dom": "^10.4.0",
